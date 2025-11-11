@@ -24,7 +24,9 @@ const ControlPanel = ({
   onPlaybackStepBackward,
   onPlaybackReset,
   onPlaybackClose,
-  onSpeedChange
+  onSpeedChange,
+  isDirected,
+  onToggleDirected
 }) => {
   return (
     <div className="h-screen w-full bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 p-6 overflow-y-auto shadow-2xl">
@@ -37,16 +39,34 @@ const ControlPanel = ({
         <p className="text-slate-400 text-sm">Connected Components & Articulation Points</p>
       </div>
 
-      {/* Instructions */}
-      <div className="mb-6 p-4 bg-slate-700 rounded-lg border-l-4 border-blue-500">
-        <h3 className="text-white font-semibold mb-2 text-sm">Quick Instructions</h3>
-        <ul className="text-slate-300 text-xs space-y-1">
-          <li>• Click canvas to add nodes</li>
-          <li>• Click two nodes to add edge</li>
-          <li>• Click nodes/edges to delete</li>
-          <li>• Drag nodes to reposition</li>
-          <li>• Red dots = Articulation points</li>
+      {/* Quick Instructions */}
+      <div className="mb-4 p-4 bg-slate-800/50 rounded-lg border border-slate-700/50">
+        <h3 className="text-sm font-semibold text-blue-400 mb-2">Quick Instructions</h3>
+        <ul className="text-xs text-slate-300 space-y-1.5">
+          <li>• <span className="font-medium">Add Node:</span> Click anywhere on the canvas</li>
+          <li>• <span className="font-medium">Add Edge:</span> Select a node, then click another node</li>
+          <li>• <span className="font-medium">Delete:</span> Select a node/edge and press Delete</li>
+          <li>• <span className="font-medium">Move Node:</span> Click and drag a node</li>
         </ul>
+      </div>
+
+      {/* Graph Type Toggle */}
+      <div className="mb-6 p-3 bg-slate-800/50 rounded-lg border border-slate-700/50">
+        <div className="flex items-center justify-between">
+          <span className="text-sm font-medium text-slate-300">Graph Type</span>
+          <div className="flex items-center">
+            <span className={`text-xs mr-2 ${!isDirected ? 'text-blue-400 font-medium' : 'text-slate-400'}`}>Undirected</span>
+            <button
+              onClick={onToggleDirected}
+              className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 ${isDirected ? 'bg-blue-600' : 'bg-slate-600'}`}
+            >
+              <span
+                className={`${isDirected ? 'translate-x-6' : 'translate-x-1'} inline-block h-4 w-4 transform rounded-full bg-white transition-transform`}
+              />
+            </button>
+            <span className={`text-xs ml-2 ${isDirected ? 'text-blue-400 font-medium' : 'text-slate-400'}`}>Directed</span>
+          </div>
+        </div>
       </div>
 
       {/* Mode Selection */}
@@ -124,116 +144,6 @@ const ControlPanel = ({
           </div>
         )}
       </div>
-
-      {/* Playback Controls */}
-      {playbackActive && (
-        <div className="mb-6 bg-slate-700 rounded-lg p-4 border-2 border-blue-500">
-          <div className="flex items-center justify-between mb-3">
-            <h2 className="text-white font-semibold text-sm">Playback Controls</h2>
-            <button
-              onClick={onPlaybackClose}
-              className="text-slate-400 hover:text-white transition-colors"
-              title="Close Playback"
-            >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-              </svg>
-            </button>
-          </div>
-
-          {/* Progress */}
-          <div className="mb-3">
-            <div className="flex justify-between text-xs text-slate-400 mb-1">
-              <span>Step: {currentStep}</span>
-              <span>Total: {totalSteps}</span>
-            </div>
-            <div className="bg-slate-800 rounded-full h-2 overflow-hidden">
-              <div
-                className="bg-gradient-to-r from-blue-500 to-green-500 h-full transition-all duration-300"
-                style={{ width: `${totalSteps > 0 ? (currentStep / totalSteps) * 100 : 0}%` }}
-              />
-            </div>
-          </div>
-
-          {/* Control Buttons */}
-          <div className="grid grid-cols-5 gap-1 mb-3">
-            <button
-              onClick={onPlaybackReset}
-              className="p-2 bg-slate-600 hover:bg-slate-500 text-white rounded transition-colors"
-              title="Reset"
-            >
-              <SkipBack className="w-4 h-4" />
-            </button>
-            <button
-              onClick={onPlaybackStepBackward}
-              disabled={currentStep === 0}
-              className="p-2 bg-slate-600 hover:bg-slate-500 disabled:bg-slate-800 disabled:cursor-not-allowed text-white rounded transition-colors"
-              title="Previous"
-            >
-              <ChevronLeft className="w-4 h-4" />
-            </button>
-            <button
-              onClick={isPlaying ? onPlaybackPause : onPlaybackPlay}
-              className={`p-2 rounded transition-colors ${
-                isPlaying ? 'bg-yellow-600 hover:bg-yellow-700' : 'bg-green-600 hover:bg-green-700'
-              } text-white`}
-              title={isPlaying ? 'Pause' : 'Play'}
-            >
-              {isPlaying ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
-            </button>
-            <button
-              onClick={onPlaybackStepForward}
-              disabled={currentStep >= totalSteps}
-              className="p-2 bg-slate-600 hover:bg-slate-500 disabled:bg-slate-800 disabled:cursor-not-allowed text-white rounded transition-colors"
-              title="Next"
-            >
-              <ChevronRight className="w-4 h-4" />
-            </button>
-            <button
-              onClick={() => {
-                for (let i = currentStep; i < totalSteps; i++) {
-                  onPlaybackStepForward();
-                }
-              }}
-              disabled={currentStep >= totalSteps}
-              className="p-2 bg-slate-600 hover:bg-slate-500 disabled:bg-slate-800 disabled:cursor-not-allowed text-white rounded transition-colors"
-              title="End"
-            >
-              <SkipForward className="w-4 h-4" />
-            </button>
-          </div>
-
-          {/* Speed Control */}
-          <div>
-            <div className="flex items-center justify-between mb-2">
-              <span className="text-xs text-slate-400 flex items-center gap-1">
-                <FastForward className="w-3 h-3" />
-                Speed
-              </span>
-            </div>
-            <div className="grid grid-cols-4 gap-1">
-              {[
-                { value: 2000, label: '0.5x' },
-                { value: 1000, label: '1x' },
-                { value: 500, label: '2x' },
-                { value: 250, label: '4x' }
-              ].map((option) => (
-                <button
-                  key={option.value}
-                  onClick={() => onSpeedChange(option.value)}
-                  className={`px-2 py-1 rounded text-xs font-medium transition-all ${
-                    playbackSpeed === option.value
-                      ? 'bg-blue-600 text-white'
-                      : 'bg-slate-600 text-slate-300 hover:bg-slate-500'
-                  }`}
-                >
-                  {option.label}
-                </button>
-              ))}
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* Special Features */}
       <div className="mb-6">
