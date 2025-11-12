@@ -1,18 +1,19 @@
 import React, { useRef, useEffect, useState } from 'react';
 
 const GraphCanvas = ({ 
-  nodes, 
-  edges, 
-  onNodeClick,
-  onEdgeClick,
-  onAddNode,
-  onAddEdge,
-  onNodePositionChange,
-  selectedNode,
-  articulationPoints,
-  flashingNodes,
-  traversalNodes,
-  mode
+  nodes = [], 
+  edges = [], 
+  onNodeClick = () => {},
+  onEdgeClick = () => {},
+  onAddNode = () => {},
+  onAddEdge = () => {},
+  onNodePositionChange = () => {},
+  selectedNode = null,
+  articulationPoints = [],
+  flashingNodes = [],
+  traversalNodes = [],
+  mode = 'select',
+  isDirected = false
 }) => {
   const canvasRef = useRef(null);
   const [hoveredNode, setHoveredNode] = useState(null);
@@ -21,41 +22,55 @@ const GraphCanvas = ({
   const [draggedNode, setDraggedNode] = useState(null);
   const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
 
-  useEffect(() => {
+  // Drawing function
+  const draw = () => {
     const canvas = canvasRef.current;
     if (!canvas) return;
 
     const ctx = canvas.getContext('2d');
-    const rect = canvas.getBoundingClientRect();
-    
-    // Set canvas size
-    canvas.width = rect.width;
-    canvas.height = rect.height;
+    const container = canvas.parentElement;
+    if (!container) return;
 
-    // Clear canvas
+    // Get the actual display size of the canvas
+    const displayWidth = container.clientWidth;
+    const displayHeight = container.clientHeight;
+    
+    // Set the canvas size to match the display size
+    if (canvas.width !== displayWidth || canvas.height !== displayHeight) {
+      canvas.width = displayWidth;
+      canvas.height = displayHeight;
+    }
+    
+    // Clear the canvas
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-    // Draw edges
+    // Draw edges first (so they appear behind nodes)
     edges.forEach(edge => {
-      const fromNode = nodes.find(n => n.id === edge.from);
-      const toNode = nodes.find(n => n.id === edge.to);
+      const sourceNode = nodes.find(n => n.id === edge.source);
+      const targetNode = nodes.find(n => n.id === edge.target);
+      if (!sourceNode || !targetNode) return;
+
+      const dx = targetNode.x - sourceNode.x;
+      const dy = targetNode.y - sourceNode.y;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      const angle = Math.atan2(dy, dx);
       
-      if (!fromNode || !toNode) return;
+      // Adjust start and end points to be on the edge of the node circles
+      const sourceX = sourceNode.x + Math.cos(angle) * 15;
+      const sourceY = sourceNode.y + Math.sin(angle) * 15;
+      const targetX = targetNode.x - Math.cos(angle) * 15;
+      const targetY = targetNode.y - Math.sin(angle) * 15;
 
-      // Check if edge is part of traversal
-      const fromTraversed = traversalNodes.includes(edge.from);
-      const toTraversed = traversalNodes.includes(edge.to);
-      const edgeTraversed = fromTraversed && toTraversed;
-
+      // Draw edge line
       ctx.beginPath();
-      ctx.moveTo(fromNode.x, fromNode.y);
-      ctx.lineTo(toNode.x, toNode.y);
+      ctx.moveTo(sourceX, sourceY);
+      ctx.lineTo(targetX, targetY);
       
-      // Highlight hovered, selected, or traversed edge
+      // Style edge based on state
       if (hoveredEdge === edge.id) {
         ctx.strokeStyle = '#FF6B6B';
         ctx.lineWidth = 4;
-      } else if (edgeTraversed) {
+      } else if (traversalNodes.includes(edge.source) && traversalNodes.includes(edge.target)) {
         ctx.strokeStyle = '#10B981'; // Green for traversed edges
         ctx.lineWidth = 3;
       } else {
@@ -65,33 +80,30 @@ const GraphCanvas = ({
       
       ctx.stroke();
 
-      // Draw edge label
-      const midX = (fromNode.x + toNode.x) / 2;
-      const midY = (fromNode.y + toNode.y) / 2;
-      ctx.fillStyle = edgeTraversed ? '#10B981' : '#4B5563';
-      ctx.font = '12px sans-serif';
-      ctx.fillText(edge.id, midX + 5, midY - 5);
+      // Draw arrowhead for directed edges
+      if (isDirected) {
+        const arrowSize = 10;
+        const arrowX = targetX - Math.cos(angle) * 10;
+        const arrowY = targetY - Math.sin(angle) * 10;
+        
+        ctx.save();
+        ctx.translate(arrowX, arrowY);
+        ctx.rotate(angle);
+        
+        ctx.beginPath();
+        ctx.moveTo(0, 0);
+        ctx.lineTo(-arrowSize, -arrowSize/2);
+        ctx.lineTo(-arrowSize, arrowSize/2);
+        ctx.closePath();
+        ctx.fillStyle = hoveredEdge === edge.id ? '#FF6B6B' : 
+                        (traversalNodes.includes(edge.source) && traversalNodes.includes(edge.target)) ? '#10B981' : '#6B7280';
+        ctx.fill();
+        
+        ctx.restore();
+      }
     });
 
-    // Draw temporary edge when creating
-    if (mode === 'addEdge' && edgeStart) {
-      const startNode = nodes.find(n => n.id === edgeStart);
-      if (startNode && hoveredNode) {
-        const endNode = nodes.find(n => n.id === hoveredNode);
-        if (endNode) {
-          ctx.beginPath();
-          ctx.moveTo(startNode.x, startNode.y);
-          ctx.lineTo(endNode.x, endNode.y);
-          ctx.strokeStyle = '#3B82F6';
-          ctx.lineWidth = 2;
-          ctx.setLineDash([5, 5]);
-          ctx.stroke();
-          ctx.setLineDash([]);
-        }
-      }
-    }
-
-    // Draw nodes
+    // Draw nodes on top of edges
     nodes.forEach(node => {
       const isArticulation = articulationPoints.includes(node.id);
       const isFlashing = flashingNodes.includes(node.id);
@@ -99,74 +111,79 @@ const GraphCanvas = ({
       const isHovered = hoveredNode === node.id;
       const isSelected = selectedNode === node.id;
 
-      // Node circle
+      // Draw node
       ctx.beginPath();
-      ctx.arc(node.x, node.y, 25, 0, 2 * Math.PI);
+      ctx.arc(node.x, node.y, 15, 0, Math.PI * 2);
       
-      // Fill color
+      // Node fill color
       if (isFlashing) {
-        ctx.fillStyle = '#FCD34D'; // Flashing yellow
+        ctx.fillStyle = '#F59E0B'; // Amber for flashing
       } else if (isTraversal) {
-        ctx.fillStyle = '#34D399'; // Traversal green
+        ctx.fillStyle = '#10B981'; // Green for traversal
       } else {
-        ctx.fillStyle = node.color || '#3B82F6';
+        ctx.fillStyle = node.color || '#3B82F6'; // Use node's connected component color
       }
-      ctx.fill();
-
-      // Border
-      if (isArticulation && !isFlashing) {
-        ctx.strokeStyle = '#EF4444';
+      
+      // Node border - red for articulation points
+      if (isArticulation) {
         ctx.lineWidth = 4;
+        ctx.strokeStyle = '#EF4444'; // Red outline for articulation points
       } else if (isSelected) {
-        ctx.strokeStyle = '#8B5CF6';
-        ctx.lineWidth = 4;
-      } else if (isHovered) {
-        ctx.strokeStyle = '#1E40AF';
         ctx.lineWidth = 3;
-      } else {
-        ctx.strokeStyle = '#1F2937';
+        ctx.strokeStyle = '#1D4ED8';
+      } else if (isHovered) {
         ctx.lineWidth = 2;
+        ctx.strokeStyle = '#4F46E5';
+      } else {
+        ctx.lineWidth = 1;
+        ctx.strokeStyle = '#1F2937';
       }
+      
+      ctx.fill();
       ctx.stroke();
 
-      // Node label
-      ctx.fillStyle = '#FFFFFF';
-      ctx.font = 'bold 14px sans-serif';
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.fillText(node.label, node.x, node.y);
-
-      // Articulation point indicator (when not flashing)
-      if (isArticulation && !isFlashing) {
+      // Draw red dot on articulation points
+      if (isArticulation) {
         ctx.beginPath();
-        ctx.arc(node.x + 18, node.y - 18, 6, 0, 2 * Math.PI);
+        ctx.arc(node.x + 10, node.y - 10, 5, 0, Math.PI * 2);
         ctx.fillStyle = '#EF4444';
         ctx.fill();
         ctx.strokeStyle = '#FFFFFF';
-        ctx.lineWidth = 2;
+        ctx.lineWidth = 1;
         ctx.stroke();
       }
+
+      // Node label
+      ctx.fillStyle = '#FFFFFF';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.font = 'bold 12px Arial';
+      ctx.fillText(node.id, node.x, node.y);
     });
+  };
 
-  }, [nodes, edges, hoveredNode, hoveredEdge, selectedNode, articulationPoints, flashingNodes, traversalNodes, mode, edgeStart, draggedNode]);
-
+  // Handle mouse down on a node
   const handleMouseDown = (e) => {
     const canvas = canvasRef.current;
     const rect = canvas.getBoundingClientRect();
     const x = e.clientX - rect.left;
     const y = e.clientY - rect.top;
 
-    // Check if clicking on a node to drag
+    // Check if clicking on a node
     for (const node of nodes) {
       const distance = Math.sqrt((x - node.x) ** 2 + (y - node.y) ** 2);
       if (distance < 25) {
         setDraggedNode(node.id);
-        setDragOffset({ x: x - node.x, y: y - node.y });
+        setDragOffset({
+          x: x - node.x,
+          y: y - node.y
+        });
         return;
       }
     }
   };
 
+  // Handle mouse movement
   const handleMouseMove = (e) => {
     const canvas = canvasRef.current;
     const rect = canvas.getBoundingClientRect();
@@ -195,11 +212,11 @@ const GraphCanvas = ({
     // Check for edge hover
     let foundEdge = null;
     for (const edge of edges) {
-      const fromNode = nodes.find(n => n.id === edge.from);
-      const toNode = nodes.find(n => n.id === edge.to);
-      if (!fromNode || !toNode) continue;
+      const sourceNode = nodes.find(n => n.id === edge.source);
+      const targetNode = nodes.find(n => n.id === edge.target);
+      if (!sourceNode || !targetNode) continue;
 
-      const distance = distanceToLineSegment(x, y, fromNode.x, fromNode.y, toNode.x, toNode.y);
+      const distance = distanceToLineSegment(x, y, sourceNode.x, sourceNode.y, targetNode.x, targetNode.y);
       if (distance < 8) {
         foundEdge = edge.id;
         break;
@@ -208,10 +225,12 @@ const GraphCanvas = ({
     setHoveredEdge(foundEdge);
   };
 
+  // Handle mouse up
   const handleMouseUp = () => {
     setDraggedNode(null);
   };
 
+  // Handle click events
   const handleClick = (e) => {
     const canvas = canvasRef.current;
     const rect = canvas.getBoundingClientRect();
@@ -238,23 +257,24 @@ const GraphCanvas = ({
 
     // Check if clicking on an edge
     for (const edge of edges) {
-      const fromNode = nodes.find(n => n.id === edge.from);
-      const toNode = nodes.find(n => n.id === edge.to);
-      if (!fromNode || !toNode) continue;
+      const sourceNode = nodes.find(n => n.id === edge.source);
+      const targetNode = nodes.find(n => n.id === edge.target);
+      if (!sourceNode || !targetNode) continue;
 
-      const distance = distanceToLineSegment(x, y, fromNode.x, fromNode.y, toNode.x, toNode.y);
+      const distance = distanceToLineSegment(x, y, sourceNode.x, sourceNode.y, targetNode.x, targetNode.y);
       if (distance < 8) {
         onEdgeClick(edge.id);
         return;
       }
     }
 
-    // Add node on empty space
+    // Add node on empty space if in addNode mode
     if (mode === 'addNode') {
       onAddNode(x, y);
     }
   };
 
+  // Calculate distance from point to line segment
   const distanceToLineSegment = (px, py, x1, y1, x2, y2) => {
     const A = px - x1;
     const B = py - y1;
@@ -285,16 +305,37 @@ const GraphCanvas = ({
     return Math.sqrt(dx * dx + dy * dy);
   };
 
+  // Update canvas on changes
+  useEffect(() => {
+    draw();
+  }, [nodes, edges, hoveredNode, hoveredEdge, selectedNode, articulationPoints, flashingNodes, traversalNodes, mode, edgeStart, draggedNode, isDirected]);
+
+  // Handle window resize
+  useEffect(() => {
+    const handleResize = () => {
+      draw();
+    };
+
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
   return (
-    <canvas
-      ref={canvasRef}
-      className={`w-full h-full bg-gray-50 ${draggedNode ? 'cursor-grabbing' : hoveredNode ? 'cursor-grab' : 'cursor-crosshair'}`}
-      onMouseDown={handleMouseDown}
-      onMouseMove={handleMouseMove}
-      onMouseUp={handleMouseUp}
-      onMouseLeave={handleMouseUp}
-      onClick={handleClick}
-    />
+    <div className="w-full h-full relative">
+      <canvas
+        ref={canvasRef}
+        className="absolute top-0 left-0 w-full h-full bg-gray-50"
+        onMouseDown={handleMouseDown}
+        onMouseMove={handleMouseMove}
+        onMouseUp={handleMouseUp}
+        onMouseLeave={handleMouseUp}
+        onClick={handleClick}
+        style={{
+          cursor: draggedNode ? 'grabbing' : hoveredNode ? 'grab' : 'crosshair',
+          display: 'block' // Ensure canvas is a block element
+        }}
+      />
+    </div>
   );
 };
 

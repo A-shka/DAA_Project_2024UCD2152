@@ -1,7 +1,8 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import GraphCanvas from './GraphCanvas';
 import ControlPanel from './ControlPanel';
 import TraversalOrder from './TraversalOrder';
+import PseudoCode from './PseudoCode';
 import InfoModal from './InfoModal';
 import ComponentsLegend from './ComponentsLegend';
 import { 
@@ -20,16 +21,21 @@ function App() {
   const [articulationPoints, setArticulationPoints] = useState([]);
   const [flashingNodes, setFlashingNodes] = useState([]);
   const [traversalNodes, setTraversalNodes] = useState([]);
+  const [traversalSequence, setTraversalSequence] = useState([]);
   const [traversalAlgorithm, setTraversalAlgorithm] = useState(null);
   const [componentColors, setComponentColors] = useState([]);
   const [nextNodeId, setNextNodeId] = useState(1);
   const [nextEdgeId, setNextEdgeId] = useState(1);
+  const [isDirected, setIsDirected] = useState(false);
+  
+  // Traversal and pseudo-code state
+  const [showPseudoCode, setShowPseudoCode] = useState(false);
+  const [pseudoCodeStep, setPseudoCodeStep] = useState(1);
   
   // Playback controls
   const [playbackActive, setPlaybackActive] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentStep, setCurrentStep] = useState(0);
-  const [traversalSequence, setTraversalSequence] = useState([]);
   const [playbackSpeed, setPlaybackSpeed] = useState(1000);
   const playbackTimerRef = useRef(null);
   
@@ -40,7 +46,6 @@ function App() {
   useEffect(() => {
     if (nodes.length === 0) {
       setComponentColors([]);
-      setArticulationPoints([]); // Clear articulation points when graph is empty
       return;
     }
 
@@ -49,16 +54,14 @@ function App() {
     setComponentColors(colors);
 
     // Assign colors to nodes based on their component
-    const updatedNodes = nodes.map(node => {
+    setNodes(prevNodes => prevNodes.map(node => {
       const componentIndex = components.findIndex(comp => comp.includes(node.id));
       return {
         ...node,
         color: colors[componentIndex] || '#3B82F6'
       };
-    });
-
-    setNodes(updatedNodes);
-  }, [nodes.length, edges.length]);
+    }));
+  }, [edges.length, nodes.length, JSON.stringify(edges.map(e => ({ s: e.source, t: e.target })))]);
 
   // Clear articulation points when graph structure changes
   useEffect(() => {
@@ -81,23 +84,26 @@ function App() {
   };
 
   // Add a new edge
-  const handleAddEdge = (fromId, toId) => {
-    // Check if edge already exists
-    const edgeExists = edges.some(
-      edge => 
-        (edge.from === fromId && edge.to === toId) || 
-        (edge.from === toId && edge.to === fromId)
-    );
+  const handleAddEdge = (source, target) => {
+    if (source === target) return; // Prevent self-loops
 
-    if (!edgeExists && fromId !== toId) {
-      const newEdge = {
-        id: `e${nextEdgeId}`,
-        from: fromId,
-        to: toId
-      };
-      setEdges([...edges, newEdge]);
-      setNextEdgeId(nextEdgeId + 1);
-    }
+    // Check if edge already exists (in either direction for undirected)
+    const edgeExists = edges.some(edge => 
+      (edge.source === source && edge.target === target) || 
+      (!isDirected && edge.source === target && edge.target === source)
+    );
+    
+    if (edgeExists) return;
+
+    const newEdge = {
+      id: `e${nextEdgeId}`,
+      source,
+      target,
+      directed: isDirected
+    };
+
+    setEdges([...edges, newEdge]);
+    setNextEdgeId(nextEdgeId + 1);
   };
 
   // Handle node click
@@ -105,7 +111,7 @@ function App() {
     if (mode === 'delete') {
       // Delete node and all connected edges
       setNodes(nodes.filter(n => n.id !== nodeId));
-      setEdges(edges.filter(e => e.from !== nodeId && e.to !== nodeId));
+      setEdges(edges.filter(e => e.source !== nodeId && e.target !== nodeId));
       setSelectedNode(null);
     } else {
       setSelectedNode(nodeId);
@@ -128,19 +134,58 @@ function App() {
     );
   };
 
+  // Run traversal algorithm (BFS or DFS)
+  const runTraversal = (algorithm, startNodeId) => {
+    console.log(`Running ${algorithm} from node ${startNodeId}`);
+    
+    // Reset states
+    setTraversalAlgorithm(algorithm);
+    setShowPseudoCode(true);
+    setPseudoCodeStep(1);
+    
+    try {
+      // Validate nodes and edges
+      if (!nodes || nodes.length === 0) {
+        console.warn('No nodes in the graph');
+        return;
+      }
+      
+      // Validate startNodeId exists in nodes
+      const nodeIds = new Set(nodes.map(node => node.id));
+      if (!startNodeId || !nodeIds.has(startNodeId)) {
+        console.warn(`Invalid start node ID: ${startNodeId}, defaulting to first node`);
+        startNodeId = nodes[0]?.id;
+        if (!startNodeId) return;
+      }
+      
+      // Run the actual algorithm
+      const traversal = algorithm === 'bfs' ? 
+        bfs(nodes, edges, startNodeId, isDirected) : 
+        dfs(nodes, edges, startNodeId, isDirected);
+      
+      console.log('Traversal result:', traversal);
+      
+      if (!traversal || !Array.isArray(traversal) || traversal.length === 0) {
+        console.warn('Empty or invalid traversal result:', traversal);
+        return;
+      }
+      
+      // Set the traversal sequence for playback
+      setTraversalSequence(traversal);
+      setCurrentStep(1); // Start at step 1 to show the first node
+      setPseudoCodeStep(1);
+      
+    } catch (error) {
+      console.error(`Error running ${algorithm}:`, error);
+    }
+  };
+
   // Run BFS with playback
   const handleRunBFS = () => {
     if (nodes.length === 0) return;
     
     const startNode = selectedNode || nodes[0].id;
-    const traversal = bfs(nodes, edges, startNode);
-    
-    console.log('BFS Traversal:', traversal);
-    
-    setTraversalAlgorithm('BFS');
-    setTraversalSequence(traversal);
-    setTraversalNodes([]);
-    setCurrentStep(0);
+    runTraversal('bfs', startNode);
     setPlaybackActive(true);
     setIsPlaying(true); // Auto-start playback
   };
@@ -150,14 +195,7 @@ function App() {
     if (nodes.length === 0) return;
     
     const startNode = selectedNode || nodes[0].id;
-    const traversal = dfs(nodes, edges, startNode);
-    
-    console.log('DFS Traversal:', traversal);
-    
-    setTraversalAlgorithm('DFS');
-    setTraversalSequence(traversal);
-    setTraversalNodes([]);
-    setCurrentStep(0);
+    runTraversal('dfs', startNode);
     setPlaybackActive(true);
     setIsPlaying(true); // Auto-start playback
   };
@@ -166,6 +204,9 @@ function App() {
   useEffect(() => {
     if (traversalSequence.length > 0) {
       setTraversalNodes(traversalSequence.slice(0, currentStep));
+      // Update pseudo-code step to cycle through the algorithm steps
+      const pseudoStep = ((currentStep - 1) % 12) + 1;
+      setPseudoCodeStep(pseudoStep);
     }
   }, [currentStep, traversalSequence]);
 
@@ -188,7 +229,7 @@ function App() {
 
   const handlePlaybackPlay = () => {
     if (currentStep >= traversalSequence.length) {
-      setCurrentStep(0);
+      setCurrentStep(1); // Reset to beginning if at the end
     }
     setIsPlaying(true);
   };
@@ -211,7 +252,7 @@ function App() {
   };
 
   const handlePlaybackStepBackward = () => {
-    if (currentStep > 0) {
+    if (currentStep > 1) {
       setIsPlaying(false);
       if (playbackTimerRef.current) {
         clearTimeout(playbackTimerRef.current);
@@ -225,7 +266,7 @@ function App() {
     if (playbackTimerRef.current) {
       clearTimeout(playbackTimerRef.current);
     }
-    setCurrentStep(0);
+    setCurrentStep(1);
   };
 
   const handlePlaybackClose = () => {
@@ -243,6 +284,12 @@ function App() {
     
     const points = findArticulationPoints(nodes, edges);
     setArticulationPoints(points);
+    
+    // Show message if no articulation points found
+    if (points.length === 0) {
+      alert('No articulation points found in this graph!\n\nArticulation points (cut vertices) are nodes whose removal would disconnect the graph or increase the number of connected components.');
+      return;
+    }
     
     // Flash animation
     let flashes = 0;
@@ -283,15 +330,15 @@ function App() {
     ];
 
     const sampleEdges = [
-      { id: 'e1', from: 1, to: 2 },
-      { id: 'e2', from: 2, to: 3 },
-      { id: 'e3', from: 1, to: 4 },
-      { id: 'e4', from: 2, to: 4 },
-      { id: 'e5', from: 2, to: 5 },
-      { id: 'e6', from: 3, to: 5 },
-      { id: 'e7', from: 4, to: 5 },
-      { id: 'e8', from: 5, to: 6 },
-      { id: 'e9', from: 7, to: 8 },
+      { id: 'e1', source: 1, target: 2 },
+      { id: 'e2', source: 2, target: 3 },
+      { id: 'e3', source: 1, target: 4 },
+      { id: 'e4', source: 2, target: 4 },
+      { id: 'e5', source: 2, target: 5 },
+      { id: 'e6', source: 3, target: 5 },
+      { id: 'e7', source: 4, target: 5 },
+      { id: 'e8', source: 5, target: 6 },
+      { id: 'e9', source: 7, target: 8 },
     ];
 
     setNodes(sampleNodes);
@@ -303,10 +350,10 @@ function App() {
   };
 
   return (
-    <div className="flex h-screen w-screen overflow-hidden">
-      {/* Control Panel - 1/3 of screen */}
-      <div className="w-1/3 min-w-[300px] max-w-[400px]">
-        <ControlPanel
+    <div className="h-[100vh] w-[100vw] flex overflow-hidden bg-white">
+      {/* Left Panel - Controls */}
+      <div className="w-[300px] h-full bg-gray-50 border-r border-gray-200 overflow-y-auto flex-shrink-0">
+        <ControlPanel 
           mode={mode}
           setMode={setMode}
           onRunBFS={handleRunBFS}
@@ -316,6 +363,7 @@ function App() {
           onGenerateSample={handleGenerateSample}
           selectedNode={selectedNode}
           nodes={nodes}
+          edges={edges}
           componentColors={componentColors}
           traversalAlgorithm={traversalAlgorithm}
           playbackActive={playbackActive}
@@ -330,11 +378,14 @@ function App() {
           onPlaybackReset={handlePlaybackReset}
           onPlaybackClose={handlePlaybackClose}
           onSpeedChange={setPlaybackSpeed}
+          isDirected={isDirected}
+          onToggleDirected={() => setIsDirected(!isDirected)}
         />
       </div>
 
-      {/* Canvas - 2/3 of screen */}
-      <div className="flex-1 relative">
+      {/* Main Canvas Area */}
+      <div className="flex-1 relative" style={{ minHeight: 'calc(100vh - 4rem)' }}>
+        {/* Graph Canvas */}
         <GraphCanvas
           nodes={nodes}
           edges={edges}
@@ -348,12 +399,13 @@ function App() {
           flashingNodes={flashingNodes}
           traversalNodes={traversalNodes}
           mode={mode}
+          isDirected={isDirected}
         />
         
-        {/* Info Button - Above Mode Indicator */}
+        {/* Info Button */}
         <button
           onClick={() => setInfoModalOpen(true)}
-          className="absolute top-4 left-4 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-semibold py-2 px-4 rounded-lg shadow-xl transition-all duration-200 flex items-center gap-2 hover:scale-105 active:scale-95"
+          className="absolute top-4 left-4 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-semibold py-2 px-4 rounded-lg shadow-xl transition-all duration-200 flex items-center gap-2 hover:scale-105 active:scale-95 z-10"
           title="Learn about Graph Theory & Algorithms"
         >
           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -363,18 +415,20 @@ function App() {
         </button>
 
         {/* Mode indicator */}
-        <div className="absolute top-16 left-4 bg-white rounded-lg shadow-lg px-4 py-2">
-          <p className="text-sm text-gray-600">Current Mode:</p>
-          <p className="text-lg font-bold text-gray-900 capitalize">
-            {mode === 'addNode' && '➕ Add Node'}
-            {mode === 'addEdge' && '🔗 Add Edge'}
-            {mode === 'delete' && '🗑️ Delete'}
-          </p>
+        <div className="absolute top-16 left-4 bg-white rounded-lg shadow-lg px-4 py-2 z-10">
+          <div className="flex items-center space-x-2">
+            <span className="text-sm text-gray-600">Mode:</span>
+            <span className="text-sm font-medium text-gray-900 capitalize">
+              {mode === 'addNode' && 'Add Node'}
+              {mode === 'addEdge' && 'Add Edge'}
+              {mode === 'delete' && 'Delete'}
+            </span>
+          </div>
         </div>
 
         {/* Selected Node Info - Below Mode Indicator */}
         {selectedNode && (
-          <div className="absolute top-36 left-4 bg-white rounded-lg shadow-lg px-4 py-2">
+          <div className="absolute top-36 left-4 bg-white rounded-lg shadow-lg px-4 py-2 z-10">
             <p className="text-sm text-gray-600">Selected Node:</p>
             <p className="text-lg font-bold text-gray-900">
               Node {selectedNode}
@@ -382,18 +436,12 @@ function App() {
           </div>
         )}
 
-        {/* Traversal Order Display */}
-        <TraversalOrder 
-          traversalNodes={traversalNodes} 
-          nodes={nodes}
-          onClose={() => {
-            setTraversalNodes([]);
-            setCurrentStep(0);
-          }}
-        />
-
-        {/* Connected Components Legend with Statistics - Bottom Panel */}
-        <ComponentsLegend componentColors={componentColors} nodes={nodes} edges={edges} />
+        {/* Connected Components Legend - Fixed to bottom of canvas area */}
+        <div className="absolute bottom-0 left-0 right-0 h-16 bg-white border-t border-gray-200 flex items-center justify-center z-10">
+          <div className="w-full max-w-4xl mx-auto px-4 overflow-x-auto">
+            <ComponentsLegend componentColors={componentColors} nodes={nodes} edges={edges} />
+          </div>
+        </div>
 
         {/* Instructions overlay for add edge mode */}
         {mode === 'addEdge' && !playbackActive && (
@@ -401,6 +449,36 @@ function App() {
             <p className="text-sm font-medium">Click two nodes to create an edge</p>
           </div>
         )}
+      </div>
+
+      {/* Right Panel - Traversal Order, Pseudo Code, and Playback Controls */}
+      <div className="h-full flex-shrink-0">
+        <TraversalOrder 
+          traversalNodes={traversalNodes} 
+          nodes={nodes}
+          edges={edges}
+          isDirected={isDirected}
+          algorithm={traversalAlgorithm}
+          pseudoCodeStep={pseudoCodeStep}
+          showPseudoCode={showPseudoCode}
+          traversalSequence={traversalSequence}
+          playbackActive={playbackActive}
+          isPlaying={isPlaying}
+          currentStep={currentStep}
+          totalSteps={traversalSequence.length}
+          playbackSpeed={playbackSpeed}
+          onPlaybackPlay={handlePlaybackPlay}
+          onPlaybackPause={handlePlaybackPause}
+          onPlaybackStepForward={handlePlaybackStepForward}
+          onPlaybackStepBackward={handlePlaybackStepBackward}
+          onPlaybackReset={handlePlaybackReset}
+          onPlaybackClose={handlePlaybackClose}
+          onSpeedChange={setPlaybackSpeed}
+          onClose={() => {
+            setTraversalNodes([]);
+            setShowPseudoCode(false);
+          }} 
+        />
       </div>
 
       {/* Info Modal */}

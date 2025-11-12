@@ -1,15 +1,32 @@
 // BFS Traversal - Traverses ALL connected components
-export const bfs = (nodes, edges, startNodeId) => {
+export const bfs = (nodes = [], edges = [], startNodeId, isDirected = false) => {
+  if (!nodes || nodes.length === 0) {
+    console.warn('BFS: No nodes provided');
+    return [];
+  }
+
+  // Validate startNodeId exists in nodes
+  const nodeIds = new Set(nodes.map(node => node.id));
+  if (!startNodeId || !nodeIds.has(startNodeId)) {
+    console.warn(`BFS: Invalid start node ID: ${startNodeId}`);
+    startNodeId = nodes[0]?.id;
+    if (!startNodeId) return [];
+  }
+
   const visited = new Set();
   const traversalOrder = [];
-  const adjacencyList = buildAdjacencyList(nodes, edges);
+  const adjacencyList = buildAdjacencyList(nodes, edges, isDirected);
 
   const bfsSingleComponent = (start) => {
+    if (visited.has(start)) return;
+    
     const queue = [start];
     visited.add(start);
 
     while (queue.length > 0) {
       const current = queue.shift();
+      if (current === undefined) continue;
+      
       traversalOrder.push(current);
 
       const neighbors = adjacencyList[current] || [];
@@ -22,26 +39,46 @@ export const bfs = (nodes, edges, startNodeId) => {
     }
   };
 
-  // Start with the specified node
-  bfsSingleComponent(startNodeId);
+  try {
+    // Start with the specified node
+    bfsSingleComponent(startNodeId);
 
-  // Continue with remaining unvisited nodes (other connected components)
-  nodes.forEach(node => {
-    if (!visited.has(node.id)) {
-      bfsSingleComponent(node.id);
-    }
-  });
+    // Continue with remaining unvisited nodes (other connected components)
+    nodes.forEach(node => {
+      if (!visited.has(node.id)) {
+        bfsSingleComponent(node.id);
+      }
+    });
+  } catch (error) {
+    console.error('Error in BFS:', error);
+    return [];
+  }
 
   return traversalOrder;
 };
 
 // DFS Traversal - Traverses ALL connected components
-export const dfs = (nodes, edges, startNodeId) => {
+export const dfs = (nodes = [], edges = [], startNodeId, isDirected = false) => {
+  if (!nodes || nodes.length === 0) {
+    console.warn('DFS: No nodes provided');
+    return [];
+  }
+
+  // Validate startNodeId exists in nodes
+  const nodeIds = new Set(nodes.map(node => node.id));
+  if (!startNodeId || !nodeIds.has(startNodeId)) {
+    console.warn(`DFS: Invalid start node ID: ${startNodeId}`);
+    startNodeId = nodes[0]?.id;
+    if (!startNodeId) return [];
+  }
+
   const visited = new Set();
   const traversalOrder = [];
-  const adjacencyList = buildAdjacencyList(nodes, edges);
+  const adjacencyList = buildAdjacencyList(nodes, edges, isDirected);
 
   const dfsHelper = (nodeId) => {
+    if (visited.has(nodeId)) return;
+    
     visited.add(nodeId);
     traversalOrder.push(nodeId);
 
@@ -67,7 +104,7 @@ export const dfs = (nodes, edges, startNodeId) => {
 };
 
 // Build adjacency list from edges
-const buildAdjacencyList = (nodes, edges) => {
+const buildAdjacencyList = (nodes, edges, isDirected = false) => {
   const adjacencyList = {};
   
   nodes.forEach(node => {
@@ -75,11 +112,16 @@ const buildAdjacencyList = (nodes, edges) => {
   });
 
   edges.forEach(edge => {
-    if (!adjacencyList[edge.from]) adjacencyList[edge.from] = [];
-    if (!adjacencyList[edge.to]) adjacencyList[edge.to] = [];
+    if (!adjacencyList[edge.source]) adjacencyList[edge.source] = [];
+    if (!adjacencyList[edge.target]) adjacencyList[edge.target] = [];
     
-    adjacencyList[edge.from].push(edge.to);
-    adjacencyList[edge.to].push(edge.from);
+    // Always add edge from source to target
+    adjacencyList[edge.source].push(edge.target);
+    
+    // Only add reverse edge for undirected graphs
+    if (!isDirected) {
+      adjacencyList[edge.target].push(edge.source);
+    }
   });
 
   return adjacencyList;
